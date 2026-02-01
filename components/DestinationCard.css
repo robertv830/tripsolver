@@ -1,0 +1,271 @@
+/* ================================
+GRID LAYOUT FOR DESTINATION CARDS
+================================ */
+
+.destination-grid {
+display: grid;
+grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+gap: 28px;
+margin-top: 24px;
+}
+
+/* ================================
+CARD BASE STYLE
+================================ */
+
+.destination-card {
+background: #ffffff;
+border-radius: 18px;
+box-shadow: 0 8px 28px rgba(0, 0, 0, 0.08);
+padding: 0 0 24px 0;
+overflow: hidden;
+display: flex;
+flex-direction: column;
+position: relative;
+transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.destination-card:hover {
+transform: translateY(-4px);
+box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
+}
+
+/* ================================
+IMAGE WRAPPER WITH GRADIENT OVERLAY
+================================ */
+
+.destination-image-wrapper {
+width: 100%;
+height: 260px; /* Taller so images display fully */
+overflow: hidden;
+border-radius: 18px 18px 0 0;
+position: relative;
+}
+
+.destination-image {
+width: 100%;
+height: 100%;
+object-fit: cover; /* Always fills card beautifully */
+transition: transform 0.35s ease;
+}
+
+.destination-card:hover .destination-image {
+transform: scale(1.05);
+}
+
+/* Gradient overlay */
+.destination-image-wrapper::after {
+content: "";
+position: absolute;
+bottom: 0;
+left: 0;
+width: 100%;
+height: 50%;
+background: linear-gradient(
+to top,
+rgba(0, 0, 0, 0.35),
+rgba(0, 0, 0, 0)
+);
+pointer-events: none;
+}
+
+/* ================================
+TITLE + SUMMARY
+================================ */
+
+.destination-title {
+font-size: 22px;
+margin: 16px 16px 6px 16px;
+font-weight: 600;
+}
+
+.destination-summary {
+font-size: 15px;
+margin: 0 16px 12px 16px;
+color: #545454;
+line-height: 1.45;
+}
+
+/* ================================
+TAGS
+================================ */
+
+.destination-tags {
+display: flex;
+gap: 6px;
+flex-wrap: wrap;
+margin: 0 16px 10px 16px;
+}
+
+.tag {
+background: #eef0f7;
+padding: 5px 10px;
+border-radius: 10px;
+font-size: 13px;
+color: #333;
+}
+
+/* ================================
+DISTANCE LABEL
+================================ */
+
+.destination-distance {
+font-size: 14px;
+margin: 0 16px 8px 16px;
+color: #555;
+display: flex;
+align-items: center;
+gap: 6px;
+}
+
+.map-link {
+cursor: pointer;
+color: #2563eb;
+font-size: 16px;
+}
+
+.map-link:hover {
+color: #1d4ed8;
+}
+
+/* ================================
+BUTTON AREA
+================================ */
+
+.destination-buttons {
+display: flex;
+justify-content: space-around;
+margin: 14px 0 8px 0;
+}
+
+.card-button {
+background: #eef2ff;
+border: none;
+border-radius: 20px;
+padding: 8px 18px;
+font-size: 14px;
+cursor: pointer;
+color: #333;
+transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.card-button:hover {
+background: #dce3ff;
+transform: translateY(-2px);
+}
+
+.primary {
+background: #2563eb !important;
+color: white !important;
+font-weight: 600;
+margin-top: 8px;
+border-radius: 24px;
+}
+
+.primary:hover {
+background: #1d4ed8 !important;
+}
+
+/* ================================
+CRUISE LABEL
+================================ */
+
+.cruise-banner {
+position: absolute;
+top: 12px;
+right: 12px;
+background: #2563eb;
+color: white;
+padding: 6px 14px;
+border-radius: 12px;
+font-size: 13px;
+font-weight: 600;
+box-shadow: 0 3px 6px rgba(0,0,0,0.15);
+}
+
+/* ================================
+MODAL, SCROLL, LIST, BUTTONS...
+(Leaving the rest as-is because it's working great)
+================================ */
+
+/* Modal overlay */
+.modal-overlay {
+position: fixed;
+top: 0;
+left: 0;
+width: 100vw;
+height: 100vh;
+background: rgba(15, 15, 15, 0.6);
+backdrop-filter: blur(3px);
+z-index: 900;
+opacity: 0;
+animation: fadeIn 0.25s forwards;
+}
+
+@keyframes fadeIn {
+from { opacity: 0; }
+to { opacity: 1; }
+}
+
+/* Modal container */
+.travel-modal {
+position: fixed;
+top: 50%;
+left: 50%;
+width: 70%;
+max-width: 900px;
+max-height: 85vh;
+transform: translate(-50%, -50%) scale(0.9);
+background: white;
+border-radius: 18px;
+padding: 26px;
+z-index: 1000;
+overflow: hidden;
+display: flex;
+flex-direction: column;
+animation: modalIn 0.25s forwards;
+box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+}
+
+@keyframes modalIn {
+from {
+opacity: 0;
+transform: translate(-50%, -46%) scale(0.85);
+}
+to {
+opacity: 1;
+transform: translate(-50%, -50%) scale(1);
+}
+}
+
+/* Close button */
+.modal-close {
+border: none;
+background: none;
+font-size: 24px;
+position: absolute;
+right: 16px;
+top: 10px;
+cursor: pointer;
+color: #333;
+}
+
+.modal-close:hover {
+color: #000;
+}
+
+/* Scrollable content */
+.modal-scroll {
+overflow-y: auto;
+padding-right: 12px;
+margin-top: 8px;
+}
+
+.modal-scroll::-webkit-scrollbar {
+width: 8px;
+}
+
+.modal-scroll::-webkit-scrollbar-thumb {
+background: #cbd5e1;
+border-radius: 8px;
+}
