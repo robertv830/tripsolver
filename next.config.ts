@@ -11,10 +11,7 @@ pathname: "/**",
 ],
 },
 
-// 👇 ADD THESE (safe for MVP)
-eslint: {
-ignoreDuringBuilds: true,
-},
+// ✅ Still supported
 typescript: {
 ignoreBuildErrors: true,
 },
