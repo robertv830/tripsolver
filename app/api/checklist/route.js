@@ -2,12 +2,9 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 
-// Ensure this route is always evaluated dynamically (not during static build)
-export const dynamic = "force-dynamic";
-
-// ---------- Places API helpers ----------
 const GOOGLE_KEY = process.env.GOOGLE_PLACES_API_KEY;
 
+// ---------- Places API helpers ----------
 async function placesSearchText(query) {
 if (!GOOGLE_KEY) return null;
 
@@ -71,7 +68,7 @@ const description = p?.editorialSummary?.text
 return { name, url, description };
 }
 
-// ---------- AI helpers ----------
+// ---------- AI fallback helpers ----------
 function stripCodeFences(text) {
 return String(text || "")
 .replace(/```json/gi, "")
@@ -85,45 +82,6 @@ return JSON.parse(text);
 } catch {
 return null;
 }
-}
-
-function buildBasicFallback(destination) {
-// A safe, non-AI fallback if BOTH keys are missing
-return {
-activities: [
-{
-name: `Top things to do in ${destination}`,
-description: "Browse popular attractions and tours.",
-url: `https://www.google.com/search?q=${encodeURIComponent(`${destination} things to do`)}`,
-},
-{
-name: `Best neighborhoods in ${destination}`,
-description: "Explore areas to stay and visit.",
-url: `https://www.google.com/search?q=${encodeURIComponent(`${destination} best neighborhoods`)}`,
-},
-],
-restaurants: [
-{
-name: `Best restaurants in ${destination}`,
-description: "Browse highly rated restaurants.",
-url: `https://www.google.com/search?q=${encodeURIComponent(`${destination} best restaurants`)}`,
-},
-{
-name: `Family-friendly restaurants in ${destination}`,
-description: "Good options if traveling with kids.",
-url: `https://www.google.com/search?q=${encodeURIComponent(
-`${destination} family friendly restaurants`
-)}`,
-},
-],
-coupons: [
-{
-name: `${destination} deals / discounts`,
-description: "Search current local deals and passes.",
-url: `https://www.google.com/search?q=${encodeURIComponent(`${destination} deals discounts`)}`,
-},
-],
-};
 }
 
 export async function POST(req) {
@@ -149,7 +107,13 @@ lon,
 type: "tourist_attraction",
 max: 8,
 });
-const restaurantsRaw = await placesNearby({ lat, lon, type: "restaurant", max: 8 });
+
+const restaurantsRaw = await placesNearby({
+lat,
+lon,
+type: "restaurant",
+max: 8,
+});
 
 const activities = activitiesRaw.map(normalizePlaceItem).filter((x) => x.url);
 const restaurants = restaurantsRaw.map(normalizePlaceItem).filter((x) => x.url);
@@ -173,18 +137,18 @@ url: `https://www.google.com/search?q=${encodeURIComponent(
 
 return NextResponse.json({ activities, restaurants, coupons });
 }
-// If Places lookup fails (no lat/lon), we fall through to AI
 }
 
-// ✅ AI fallback path — BUT ONLY if OPENAI_API_KEY exists
-const OPENAI_KEY = process.env.OPENAI_API_KEY;
-if (!OPENAI_KEY) {
-// Don’t crash builds or runtime — return safe fallback
-return NextResponse.json(buildBasicFallback(destination));
+// ✅ Fallback: OpenAI ONLY if needed
+const openaiKey = process.env.OPENAI_API_KEY;
+if (!openaiKey) {
+return NextResponse.json(
+{ error: "Missing OPENAI_API_KEY on server" },
+{ status: 500 }
+);
 }
 
-// Create OpenAI client lazily (inside request)
-const openai = new OpenAI({ apiKey: OPENAI_KEY });
+const openai = new OpenAI({ apiKey: openaiKey });
 
 const prompt = `
 Return ONLY valid JSON (no markdown, no extra text).
@@ -228,6 +192,7 @@ return NextResponse.json({ error: "Invalid JSON from AI", raw }, { status: 500 }
 }
 
 const ensureArray = (v) => (Array.isArray(v) ? v : []);
+
 const withSearchFallback = (item, type) => {
 const name = String(item?.name || item || "").trim();
 const description = String(item?.description || "").trim();
@@ -237,15 +202,18 @@ if (!url) {
 const q = `${name} ${destination}`;
 url = `https://www.google.com/search?q=${encodeURIComponent(q)}`;
 }
-
 return { name, description, url };
 };
 
-const activities = ensureArray(parsed.activities).map((i) => withSearchFallback(i, "activity"));
+const activities = ensureArray(parsed.activities).map((i) =>
+withSearchFallback(i, "activity")
+);
 const restaurants = ensureArray(parsed.restaurants).map((i) =>
 withSearchFallback(i, "restaurant")
 );
-const coupons = ensureArray(parsed.coupons).map((i) => withSearchFallback(i, "coupon"));
+const coupons = ensureArray(parsed.coupons).map((i) =>
+withSearchFallback(i, "coupon")
+);
 
 return NextResponse.json({ activities, restaurants, coupons });
 } catch (error) {
