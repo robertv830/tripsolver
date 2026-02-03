@@ -2,10 +2,12 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const GOOGLE_KEY = process.env.GOOGLE_PLACES_API_KEY;
+// Ensure this route is always evaluated dynamically (not during static build)
+export const dynamic = "force-dynamic";
 
 // ---------- Places API helpers ----------
+const GOOGLE_KEY = process.env.GOOGLE_PLACES_API_KEY;
+
 async function placesSearchText(query) {
 if (!GOOGLE_KEY) return null;
 
@@ -48,7 +50,8 @@ method: "POST",
 headers: {
 "Content-Type": "application/json",
 "X-Goog-Api-Key": GOOGLE_KEY,
-"X-Goog-FieldMask": "places.displayName,places.googleMapsUri,places.websiteUri,places.editorialSummary",
+"X-Goog-FieldMask":
+"places.displayName,places.googleMapsUri,places.websiteUri,places.editorialSummary",
 },
 body: JSON.stringify(body),
 });
@@ -61,24 +64,66 @@ return Array.isArray(data?.places) ? data.places : [];
 function normalizePlaceItem(p) {
 const name = p?.displayName?.text || "Unknown";
 const url = p?.websiteUri || p?.googleMapsUri || "";
-const description =
-p?.editorialSummary?.text
+const description = p?.editorialSummary?.text
 ? p.editorialSummary.text.slice(0, 120)
 : "";
 
 return { name, url, description };
 }
 
-// ---------- AI fallback (only used if Places key missing) ----------
+// ---------- AI helpers ----------
 function stripCodeFences(text) {
-return String(text || "").replace(/```json/gi, "").replace(/```/g, "").trim();
+return String(text || "")
+.replace(/```json/gi, "")
+.replace(/```/g, "")
+.trim();
 }
+
 function safeJsonParse(text) {
 try {
 return JSON.parse(text);
 } catch {
 return null;
 }
+}
+
+function buildBasicFallback(destination) {
+// A safe, non-AI fallback if BOTH keys are missing
+return {
+activities: [
+{
+name: `Top things to do in ${destination}`,
+description: "Browse popular attractions and tours.",
+url: `https://www.google.com/search?q=${encodeURIComponent(`${destination} things to do`)}`,
+},
+{
+name: `Best neighborhoods in ${destination}`,
+description: "Explore areas to stay and visit.",
+url: `https://www.google.com/search?q=${encodeURIComponent(`${destination} best neighborhoods`)}`,
+},
+],
+restaurants: [
+{
+name: `Best restaurants in ${destination}`,
+description: "Browse highly rated restaurants.",
+url: `https://www.google.com/search?q=${encodeURIComponent(`${destination} best restaurants`)}`,
+},
+{
+name: `Family-friendly restaurants in ${destination}`,
+description: "Good options if traveling with kids.",
+url: `https://www.google.com/search?q=${encodeURIComponent(
+`${destination} family friendly restaurants`
+)}`,
+},
+],
+coupons: [
+{
+name: `${destination} deals / discounts`,
+description: "Search current local deals and passes.",
+url: `https://www.google.com/search?q=${encodeURIComponent(`${destination} deals discounts`)}`,
+},
+],
+};
 }
 
 export async function POST(req) {
@@ -98,7 +143,12 @@ const lat = place?.location?.latitude;
 const lon = place?.location?.longitude;
 
 if (typeof lat === "number" && typeof lon === "number") {
-const activitiesRaw = await placesNearby({ lat, lon, type: "tourist_attraction", max: 8 });
+const activitiesRaw = await placesNearby({
+lat,
+lon,
+type: "tourist_attraction",
+max: 8,
+});
 const restaurantsRaw = await placesNearby({ lat, lon, type: "restaurant", max: 8 });
 
 const activities = activitiesRaw.map(normalizePlaceItem).filter((x) => x.url);
@@ -108,20 +158,34 @@ const coupons = [
 {
 name: `${destination} attraction passes / bundles`,
 description: "Search passes and bundles you can compare quickly.",
-url: `https://www.google.com/search?q=${encodeURIComponent(`${destination} attraction pass`)}`,
+url: `https://www.google.com/search?q=${encodeURIComponent(
+`${destination} attraction pass`
+)}`,
 },
 {
 name: `${destination} discounts / deals`,
 description: "Search current local deals and city passes.",
-url: `https://www.google.com/search?q=${encodeURIComponent(`${destination} deals discount tickets`)}`,
+url: `https://www.google.com/search?q=${encodeURIComponent(
+`${destination} deals discount tickets`
+)}`,
 },
 ];
 
 return NextResponse.json({ activities, restaurants, coupons });
 }
+// If Places lookup fails (no lat/lon), we fall through to AI
 }
 
-// Fallback: OpenAI (if no Places key or location lookup fails)
+// ✅ AI fallback path — BUT ONLY if OPENAI_API_KEY exists
+const OPENAI_KEY = process.env.OPENAI_API_KEY;
+if (!OPENAI_KEY) {
+// Don’t crash builds or runtime — return safe fallback
+return NextResponse.json(buildBasicFallback(destination));
+}
+
+// Create OpenAI client lazily (inside request)
+const openai = new OpenAI({ apiKey: OPENAI_KEY });
+
 const prompt = `
 Return ONLY valid JSON (no markdown, no extra text).
 
@@ -168,18 +232,19 @@ const withSearchFallback = (item, type) => {
 const name = String(item?.name || item || "").trim();
 const description = String(item?.description || "").trim();
 let url = String(item?.url || "").trim();
+
 if (!url) {
-const q =
-type === "restaurant"
-? `${name} ${destination}`
-: `${name} ${destination}`;
+const q = `${name} ${destination}`;
 url = `https://www.google.com/search?q=${encodeURIComponent(q)}`;
 }
+
 return { name, description, url };
 };
 
 const activities = ensureArray(parsed.activities).map((i) => withSearchFallback(i, "activity"));
-const restaurants = ensureArray(parsed.restaurants).map((i) => withSearchFallback(i, "restaurant"));
+const restaurants = ensureArray(parsed.restaurants).map((i) =>
+withSearchFallback(i, "restaurant")
+);
 const coupons = ensureArray(parsed.coupons).map((i) => withSearchFallback(i, "coupon"));
 
 return NextResponse.json({ activities, restaurants, coupons });
