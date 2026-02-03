@@ -1,8 +1,9 @@
 // app/api/places/route.js
 import { NextResponse } from "next/server";
 
-const GOOGLE_KEY = process.env.GOOGLE_MAPS_API_KEY;
-
+const GOOGLE_KEY =
+process.env.GOOGLE_MAPS_API_KEY ||
+process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 // ---------------- helpers ----------------
 function mapsPlaceUrl(placeId) {
 if (!placeId) return null;
