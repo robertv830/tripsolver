@@ -23,9 +23,33 @@ flexDirection: "column",
 {/* Main content */}
 <div style={{ flex: 1 }}>
 <div style={{ textAlign: "center", marginBottom: 28 }}>
+<img
+src="/images/tripsolver-logo.png"
+alt="TripSolver Logo"
+style={{
+width: 140,
+height: "auto",
+marginBottom: 10,
+}}
+/>
+
 <h1 style={{ fontSize: 44, fontWeight: 900, margin: 0 }}>
 TripSolver
 </h1>
+
+<div
+style={{
+marginTop: 6,
+fontSize: 20,
+fontWeight: 700,
+color: "#1d4ed8",
+letterspacing: 0.5,
+fontStyle: "italic",
+}}
+>
+"Plan less. Travel more."
+</div>
+
 <div style={{ marginTop: 10, color: "#374151", fontSize: 18 }}>
 Take a quick quiz. Get destination matches + activities + restaurants + deals.
 </div>
