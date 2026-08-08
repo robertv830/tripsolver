@@ -2,7 +2,14 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import VacationTypePicker from "./VacationTypePicker";
+
+/* ---------------- affiliate links ---------------- */
+
+const EXPEDIA_AFFILIATE = "https://expedia.com/affiliate/L5a0NGb";
+const VIATOR_AFFILIATE = "https://www.viator.com/?pid=P00276898&mcid=42383&medium=link";
+const GETYOURGUIDE_AFFILIATE = "https://www.getyourguide.com?partner_id=H15MS0N&utm_medium=online_publisher";
 
 /* ---------------- helpers ---------------- */
 
@@ -33,7 +40,11 @@ if (!s) return "";
 try {
 const d = new Date(s);
 if (Number.isNaN(d.getTime())) return s;
-return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+return d.toLocaleDateString(undefined, {
+month: "short",
+day: "numeric",
+year: "numeric",
+});
 } catch {
 return s;
 }
@@ -65,10 +76,33 @@ const dest = destinationName ? String(destinationName).trim() : "";
 return `https://www.google.com/travel/hotels?q=${encodeURIComponent(dest)}`;
 }
 
-/**
-* Unsplash “source” endpoint: no API key needed.
-* It can occasionally fail — we fall back to picsum in onError.
-*/
+function buildRentalCarsUrl(destinationName) {
+const dest = destinationName ? String(destinationName).trim() : "";
+return `https://www.google.com/travel/cars?q=${encodeURIComponent(dest)}`;
+}
+
+function buildExpediaAffiliateUrl(kind, destinationName) {
+const dest = String(destinationName || "").trim();
+const q = encodeURIComponent(dest);
+
+if (kind === "flights") return `${EXPEDIA_AFFILIATE}?q=${q}&type=flights`;
+if (kind === "hotels") return `${EXPEDIA_AFFILIATE}?q=${q}&type=hotels`;
+if (kind === "cars") return `${EXPEDIA_AFFILIATE}?q=${q}&type=cars`;
+if (kind === "cruise") return `${EXPEDIA_AFFILIATE}?q=${q}&type=cruise`;
+
+return EXPEDIA_AFFILIATE;
+}
+
+function buildViatorDestinationUrl(destinationName) {
+const dest = encodeURIComponent(String(destinationName || "").trim());
+return `${VIATOR_AFFILIATE}&q=${dest}`;
+}
+
+function buildGetYourGuideDestinationUrl(destinationName) {
+const dest = encodeURIComponent(String(destinationName || "").trim());
+return `${GETYOURGUIDE_AFFILIATE}&q=${dest}`;
+}
+
 function buildUnsplashUrl(keyword) {
 const q = String(keyword || "travel").trim();
 return `https://source.unsplash.com/featured/800x450/?${encodeURIComponent(q)}`;
@@ -88,9 +122,14 @@ return h || 1;
 
 function guessImageKeyword(destination) {
 const name = destination?.name || "";
-const tags = Array.isArray(destination?.tags) ? destination.tags : [];
+const tags = Array.isArray(destination?.tags)
+? destination.tags
+: Array.isArray(destination?.tags?.types)
+? destination.tags.types
+: [];
 const tagStr = tags.join(" ").toLowerCase();
 
+if (tagStr.includes("cruise")) return `${name} cruise ship`;
 if (tagStr.includes("beach")) return `${name} beach`;
 if (tagStr.includes("mountain")) return `${name} mountains`;
 if (tagStr.includes("theme")) return `${name} theme park`;
@@ -101,17 +140,91 @@ return `${name} travel`;
 }
 
 function getDestinationImageSrc(destination) {
+if (destination?.imageUrl) return destination.imageUrl;
+
 const name = destination?.name || "travel";
-const keyword = guessImageKeyword(destination);
+const keyword = destination?.isCruise ? "cruise ship ocean" : guessImageKeyword(destination);
 return buildUnsplashUrl(keyword) + `&sig=${hashStringToNumber(name)}`;
 }
 
+/* ---------------- itinerary storage ---------------- */
+
+function canUseDOMStorage() {
+return typeof window !== "undefined" && typeof localStorage !== "undefined";
+}
+
 function loadItineraryFromStorage() {
+if (!canUseDOMStorage()) return [];
 return safeJsonParse(localStorage.getItem("itinerary"), []);
 }
 
 function saveItineraryToStorage(items) {
+if (!canUseDOMStorage()) return;
 localStorage.setItem("itinerary", JSON.stringify(items || []));
+}
+
+function loadItineraryMeta() {
+if (!canUseDOMStorage()) {
+return { destinationName: "", createdAt: null, name: "" };
+}
+return safeJsonParse(localStorage.getItem("itineraryMeta"), {
+destinationName: "",
+createdAt: null,
+name: "",
+});
+}
+
+function saveItineraryMeta(meta) {
+if (!canUseDOMStorage()) return;
+localStorage.setItem("itineraryMeta", JSON.stringify(meta || {}));
+}
+
+function loadItineraryHistory() {
+if (!canUseDOMStorage()) return [];
+return safeJsonParse(localStorage.getItem("itineraryHistory"), []);
+}
+
+function saveItineraryHistory(list) {
+if (!canUseDOMStorage()) return;
+localStorage.setItem(
+"itineraryHistory",
+JSON.stringify(Array.isArray(list) ? list : [])
+);
+}
+
+function archiveCurrentItinerary({ reason = "Saved", forceName } = {}) {
+const items = loadItineraryFromStorage();
+if (!Array.isArray(items) || items.length === 0) return;
+
+const meta = loadItineraryMeta();
+const history = loadItineraryHistory();
+
+const createdAt = meta?.createdAt || new Date().toISOString();
+const dest = meta?.destinationName || items?.[0]?.destinationName || "Unknown";
+
+const name =
+String(forceName || meta?.name || "").trim() ||
+`${reason}: ${dest} (${new Date(createdAt).toLocaleDateString()})`;
+
+const entry = {
+id: `it_${Date.now()}`,
+name,
+destinationName: dest,
+createdAt,
+items,
+};
+
+saveItineraryHistory([entry, ...history].slice(0, 25));
+}
+
+function startNewItinerary({ destinationName = "", archive = true } = {}) {
+if (archive) archiveCurrentItinerary({ reason: "Saved" });
+saveItineraryToStorage([]);
+saveItineraryMeta({
+destinationName: destinationName || "",
+createdAt: new Date().toISOString(),
+name: "",
+});
 }
 
 function groupItinerary(items) {
@@ -120,7 +233,7 @@ for (const it of items || []) {
 const type = it?.type;
 if (type === "activity") grouped.activity.push(it);
 else if (type === "restaurant") grouped.restaurant.push(it);
-else grouped.coupon.push(it); // includes custom ideas
+else grouped.coupon.push(it);
 }
 return grouped;
 }
@@ -170,14 +283,14 @@ t === "pro"
 
 const bullets = [];
 if (t === "pro") {
-bullets.push("✅ Passport/ID check (if needed)");
-bullets.push("✅ Hotel booked + confirmation saved");
-bullets.push("✅ Transportation (flight/drive) confirmed");
-bullets.push("✅ Weather-based packing reminder (sample)");
-bullets.push("✅ Build a day-by-day plan (Pro feature preview)");
+bullets.push("✅ Passport/ID check");
+bullets.push("✅ Hotel confirmation saved");
+bullets.push("✅ Transportation booked");
+bullets.push("✅ Packing reminders");
+bullets.push("✅ Day-by-day trip plan");
 } else if (t === "plus") {
 bullets.push("✅ Saved itinerary items");
-bullets.push("✅ Share with friends/family (preview)");
+bullets.push("✅ Share with friends/family");
 } else {
 bullets.push("✅ Upgrade to Plus to save itineraries");
 }
@@ -187,7 +300,7 @@ const shareText = itineraryToShareText(items);
 const body = [
 `Hi!`,
 ``,
-`Here’s your TripSolver ${t.toUpperCase()} preview.`,
+`Here’s your TripSolver ${t.toUpperCase()} itinerary.`,
 when ? `Trip dates: ${when}` : ``,
 destinationName ? `Destination focus: ${destinationName}` : ``,
 ``,
@@ -226,26 +339,196 @@ link: buildPlaceLink(it),
 }));
 
 const finalItems = mapped.length >= 3 ? mapped : fallback;
-const dayLabel = startDate ? fmtDateISO(startDate) : "Trip Day 1 (sample)";
+const dayLabel = startDate ? fmtDateISO(startDate) : "Day 1";
 
 const times = ["8:00 AM", "9:30 AM", "12:00 PM", "2:00 PM", "6:30 PM", "9:00 PM"];
 
 return {
-title: `Sample AI-built itinerary (${dayLabel})`,
+title: `Suggested itinerary (${dayLabel})`,
 rows: times.map((t, idx) => ({
 time: t,
 ...finalItems[idx % finalItems.length],
 })),
-note: "Preview only — Pro will later auto-optimize by distance, hours, and preferences.",
+note: "TripSolver organizes your day around your saved items.",
 };
 }
 
+function cardActionButtonStyle(dark = false) {
+return {
+display: "inline-flex",
+alignItems: "center",
+justifyContent: "center",
+border: dark ? "1px solid #111827" : "1px solid #d1d5db",
+background: dark ? "#111827" : "white",
+color: dark ? "white" : "#111827",
+borderRadius: 10,
+padding: "8px 10px",
+fontWeight: 900,
+textDecoration: "none",
+fontSize: 13,
+minHeight: 38,
+cursor: "pointer",
+};
+}
+
+function normalizeVacationChoice(value) {
+return String(value || "").toLowerCase().trim();
+}
+
+function getDestinationTagTypes(destination) {
+return Array.isArray(destination?.tags?.types)
+? destination.tags.types
+: Array.isArray(destination?.tags)
+? destination.tags
+: [];
+}
+
+function getTypeWeight(destination, vacationType) {
+if (!vacationType || vacationType === "any") return 0;
+
+const wRaw = destination?.vacationTypeWeights?.[vacationType];
+if (typeof wRaw === "number") return Math.max(0, Math.min(1, wRaw));
+
+const tags = getDestinationTagTypes(destination).map((t) => normalizeVacationChoice(t));
+const wanted = normalizeVacationChoice(vacationType);
+
+const synonyms = {
+theme: ["theme", "theme park", "theme parks"],
+beach: ["beach", "beaches"],
+outdoors: ["outdoors", "outdoor", "nature"],
+culture: ["culture", "history", "city"],
+history: ["history", "culture"],
+adventure: ["adventure"],
+family: ["family", "family friendly"],
+relaxing: ["relaxing", "relaxed"],
+themed: ["themed", "themed town", "themed towns"],
+};
+
+const values = synonyms[wanted] || [wanted];
+return values.some((v) => tags.includes(v)) ? 0.8 : 0;
+}
+
+function destinationMatchesVacationType(destination, vacationType) {
+return getTypeWeight(destination, vacationType) > 0.45;
+}
 /* ---------------- components ---------------- */
+
+function CruiseCard({ cruise, onClick }) {
+const imgSrc = useMemo(() => {
+if (cruise?.imageUrl) return cruise.imageUrl;
+return buildUnsplashUrl(cruise?.imageKeyword || "cruise ship ocean deck") + `&sig=${hashStringToNumber(cruise?.title || "cruise")}`;
+}, [cruise]);
+
+return (
+<div
+style={{
+border: "2px solid #111827",
+borderRadius: 12,
+background: "white",
+overflow: "hidden",
+display: "flex",
+flexDirection: "column",
+minHeight: 100,
+}}
+>
+<div style={{ width: "100%", height: 170, background: "#f3f4f6" }}>
+<img
+src={imgSrc}
+alt={cruise?.imageAlt || cruise?.title || "Cruise"}
+loading="lazy"
+style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+onError={(e) => {
+e.currentTarget.src = buildPicsumUrl(hashStringToNumber(cruise?.title || "cruise") + 101);
+}}
+/>
+</div>
+
+<div style={{ padding: 16, display: "flex", flexDirection: "column", flex: 1 }}>
+<div style={{ fontSize: 20, fontWeight: 900, marginBottom: 6 }}>
+🚢 {cruise?.title || cruise?.name || "Cruise Pick"}
+</div>
+
+{cruise?.subtitle ? (
+<div style={{ color: "#374151", marginBottom: 8, fontWeight: 700 }}>
+{cruise.subtitle}
+</div>
+) : null}
+
+{cruise?.summary ? <div style={{ color: "#374151", marginBottom: 8 }}>{cruise.summary}</div> : null}
+
+{Array.isArray(cruise?.bullets) && cruise.bullets.length ? (
+<ul style={{ margin: "0 0 12px 0", paddingLeft: 18, color: "#374151" }}>
+{cruise.bullets.slice(0, 4).map((b, i) => (
+<li key={i} style={{ marginBottom: 3 }}>
+{b}
+</li>
+))}
+</ul>
+) : null}
+
+{cruise?.imagePhotographer ? (
+<div style={{ fontSize: 12, color: "#6b7280", marginBottom: 10 }}>
+Photo by{" "}
+{cruise?.imagePhotographerUrl ? (
+<a
+href={cruise.imagePhotographerUrl}
+target="_blank"
+rel="noreferrer"
+style={{ color: "#6b7280" }}
+>
+{cruise.imagePhotographer}
+</a>
+) : (
+cruise.imagePhotographer
+)}{" "}
+on Unsplash
+</div>
+) : null}
+
+<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: "auto" }}>
+<a
+href={buildExpediaAffiliateUrl("cruise", cruise?.title || cruise?.name || "cruise")}
+target="_blank"
+rel="noreferrer"
+style={cardActionButtonStyle(true)}
+>
+Cruise Deals
+</a>
+<a
+href={VIATOR_AFFILIATE}
+target="_blank"
+rel="noreferrer"
+style={cardActionButtonStyle(false)}
+>
+Excursions
+</a>
+</div>
+
+<button
+onClick={onClick}
+style={{
+marginTop: 10,
+background: "#111827",
+color: "white",
+border: "none",
+borderRadius: 10,
+padding: "11px 14px",
+fontWeight: 900,
+cursor: "pointer",
+width: "100%",
+}}
+title="Opens cruise ideas in a new tab"
+>
+Explore Cruise Option
+</button>
+</div>
+</div>
+);
+}
 
 function DestinationCard({ destination, originZip, onPlanTrip }) {
 const name = destination?.name || "Destination";
-const distance = destination?.distance;
-
+const distance = destination?.distance ?? destination?.distanceMiles ?? destination?.distance_miles;
 const imgSrc = useMemo(() => getDestinationImageSrc(destination), [destination]);
 
 return (
@@ -257,13 +540,13 @@ background: "white",
 overflow: "hidden",
 display: "flex",
 flexDirection: "column",
+minHeight: 100,
 }}
 >
-{/* Banner image */}
-<div style={{ width: "100%", height: 150, background: "#f3f4f6" }}>
+<div style={{ width: "100%", height: 170, background: "#f3f4f6" }}>
 <img
 src={imgSrc}
-alt={name}
+alt={destination?.imageAlt || name}
 loading="lazy"
 style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
 onError={(e) => {
@@ -272,11 +555,30 @@ e.currentTarget.src = buildPicsumUrl(hashStringToNumber(name) + 17);
 />
 </div>
 
-<div style={{ padding: 16 }}>
-<div style={{ fontSize: 18, fontWeight: 900, marginBottom: 6 }}>{name}</div>
+<div style={{ padding: 16, display: "flex", flexDirection: "column", flex: 1 }}>
+<div style={{ fontSize: 20, fontWeight: 900, marginBottom: 6 }}>{name}</div>
 
 {destination?.summary ? (
 <div style={{ color: "#374151", marginBottom: 8 }}>{destination.summary}</div>
+) : null}
+
+{destination?.imagePhotographer ? (
+<div style={{ fontSize: 12, color: "#6b7280", marginBottom: 8 }}>
+Photo by{" "}
+{destination?.imagePhotographerUrl ? (
+<a
+href={destination.imagePhotographerUrl}
+target="_blank"
+rel="noreferrer"
+style={{ color: "#6b7280" }}
+>
+{destination.imagePhotographer}
+</a>
+) : (
+destination.imagePhotographer
+)}{" "}
+on Unsplash
+</div>
 ) : null}
 
 {distance != null ? (
@@ -286,7 +588,7 @@ e.currentTarget.src = buildPicsumUrl(hashStringToNumber(name) + 17);
 ) : null}
 
 {Array.isArray(destination?.whyMatched) && destination.whyMatched.length ? (
-<div style={{ marginBottom: 10 }}>
+<div style={{ marginBottom: 12 }}>
 <div style={{ fontWeight: 900, marginBottom: 6 }}>Why this matched</div>
 <ul style={{ margin: 0, paddingLeft: 18, color: "#374151" }}>
 {destination.whyMatched.slice(0, 4).map((w, i) => (
@@ -296,17 +598,44 @@ e.currentTarget.src = buildPicsumUrl(hashStringToNumber(name) + 17);
 </div>
 ) : null}
 
-<div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-<a href={buildDrivingDirectionsUrl(originZip, name)} target="_blank" rel="noreferrer" style={{ fontWeight: 800 }}>
-📍 Directions
-</a>
-<a href={buildFlightsUrl(name)} target="_blank" rel="noreferrer" style={{ fontWeight: 800 }}>
+<div
+style={{
+display: "grid",
+gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+gap: 8,
+marginTop: "auto",
+}}
+>
+<a
+href={buildExpediaAffiliateUrl("flights", name)}
+target="_blank"
+rel="noreferrer"
+style={cardActionButtonStyle(false)}
+>
 Flights
 </a>
-<a href={buildHotelsUrl(name)} target="_blank" rel="noreferrer" style={{ fontWeight: 800 }}>
+<a
+href={buildExpediaAffiliateUrl("hotels", name)}
+target="_blank"
+rel="noreferrer"
+style={cardActionButtonStyle(false)}
+>
 Hotels
 </a>
-<a href={buildMapsSearchUrl(name)} target="_blank" rel="noreferrer" style={{ fontWeight: 800 }}>
+<a
+href={buildExpediaAffiliateUrl("cars", name)}
+target="_blank"
+rel="noreferrer"
+style={cardActionButtonStyle(false)}
+>
+Rental Cars
+</a>
+<a
+href={buildMapsSearchUrl(name)}
+target="_blank"
+rel="noreferrer"
+style={cardActionButtonStyle(false)}
+>
 Map
 </a>
 </div>
@@ -314,12 +643,12 @@ Map
 <button
 onClick={() => onPlanTrip(destination)}
 style={{
-marginTop: 12,
+marginTop: 10,
 background: "#1d4ed8",
 color: "white",
 border: "none",
 borderRadius: 10,
-padding: "10px 14px",
+padding: "11px 14px",
 fontWeight: 900,
 cursor: "pointer",
 width: "100%",
@@ -342,6 +671,9 @@ onEmail,
 tripDates,
 onTripDatesChange,
 destinationNameForPro,
+pulse,
+itineraryMeta,
+onStartNewItineraryClick,
 }) {
 const grouped = useMemo(() => groupItinerary(items), [items]);
 const total = (items || []).length;
@@ -359,60 +691,56 @@ border: "1px solid #e5e7eb",
 borderRadius: 12,
 background: "white",
 padding: 14,
+boxShadow: pulse ? "0 0 0 4px rgba(29,78,216,0.20)" : "none",
+transition: "box-shadow 250ms ease",
 }}
 >
-<div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+<div
+style={{
+display: "flex",
+alignItems: "center",
+justifyContent: "space-between",
+gap: 12,
+flexWrap: "wrap",
+}}
+>
 <div style={{ fontWeight: 900, fontSize: 16 }}>🧳 Your Itinerary</div>
 
 <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
 <div style={{ color: "#6b7280", fontWeight: 900 }}>{total} item(s)</div>
 
-<button
-onClick={onCopyShare}
+{itineraryMeta?.destinationName ? (
+<div
 style={{
-border: "1px solid #d1d5db",
-background: "white",
-borderRadius: 10,
-padding: "8px 10px",
-cursor: "pointer",
+color: "#111827",
 fontWeight: 900,
+background: "#eef2ff",
+padding: "6px 10px",
+borderRadius: 999,
 }}
-title="Copies your itinerary text to clipboard"
 >
+Active: {itineraryMeta.destinationName}
+</div>
+) : null}
+
+<button onClick={onStartNewItineraryClick} style={cardActionButtonStyle(false)}>
+Start New Itinerary
+</button>
+
+<button onClick={onCopyShare} style={cardActionButtonStyle(false)}>
 Copy Share Text
 </button>
 
-<button
-onClick={onEmail}
-style={{
-border: "1px solid #d1d5db",
-background: "white",
-borderRadius: 10,
-padding: "8px 10px",
-cursor: "pointer",
-fontWeight: 900,
-}}
-title="Shows an email preview (copy/paste)"
->
+<button onClick={onEmail} style={cardActionButtonStyle(false)}>
 Email Preview
 </button>
 
-<button
-onClick={onClear}
-style={{
-border: "1px solid #d1d5db",
-background: "white",
-borderRadius: 10,
-padding: "8px 10px",
-cursor: "pointer",
-fontWeight: 900,
-}}
-title="Clears your itinerary"
->
+<button onClick={onClear} style={cardActionButtonStyle(false)}>
 Clear
 </button>
 </div>
 </div>
+
 {!canUse ? (
 <div style={{ marginTop: 10, color: "#374151" }}>
 You’re in <b>Free</b> mode. Upgrade to <b>Plus</b> to save and view an itinerary.
@@ -422,7 +750,6 @@ You’re in <b>Free</b> mode. Upgrade to <b>Plus</b> to save and view an itinera
 Select a few items in “Plan Trip”, then click <b>Add Selected to Itinerary</b>.
 </div>
 ) : (
-<>
 <div
 style={{
 display: "grid",
@@ -500,12 +827,11 @@ title="Remove"
 </div>
 ))}
 </div>
-</>
 )}
 
 {isPro ? (
 <div style={{ marginTop: 14, borderTop: "1px solid #f3f4f6", paddingTop: 12 }}>
-<div style={{ fontWeight: 900, marginBottom: 6 }}>📅 Pro: Trip dates + reminders (preview)</div>
+<div style={{ fontWeight: 900, marginBottom: 6 }}>📅 Trip dates + reminders</div>
 
 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
 <div style={{ display: "grid", gap: 6 }}>
@@ -527,23 +853,6 @@ onChange={(e) => onTripDatesChange({ ...tripDates, endDate: e.target.value })}
 style={{ border: "1px solid #d1d5db", borderRadius: 10, padding: "8px 10px" }}
 />
 </div>
-
-<div style={{ alignSelf: "end", color: "#6b7280", fontWeight: 800 }}>
-(This is a preview — real emails come later. Will be able to share iteniary with others)
-</div>
-</div>
-
-<div style={{ marginTop: 10, border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, background: "#fafafa" }}>
-<div style={{ fontWeight: 900, marginBottom: 6 }}>📧 Example email preview</div>
-<div style={{ color: "#374151" }}>
-Subject: <b>2 months from your vacation — prep list</b>
-</div>
-<ul style={{ marginTop: 8, color: "#374151" }}>
-<li>Passport/ID check</li>
-<li>Hotel booked?</li>
-<li>Weather-based packing (sample)</li>
-<li>Build a day-by-day plan (Pro)</li>
-</ul>
 </div>
 
 <div style={{ marginTop: 12 }}>
@@ -572,7 +881,9 @@ alignItems: "center",
 </div>
 ))}
 
-<div style={{ marginTop: 10, color: "#6b7280", fontSize: 13, fontWeight: 800 }}>{tl.note}</div>
+<div style={{ marginTop: 10, color: "#6b7280", fontSize: 13, fontWeight: 800 }}>
+{tl.note}
+</div>
 </div>
 );
 })()}
@@ -582,8 +893,16 @@ alignItems: "center",
 </div>
 );
 }
+/* ---------------- PlanTripModal ---------------- */
 
-function PlanTripModal({ destination, originZip, tier, onClose, onItineraryChanged }) {
+function PlanTripModal({
+destination,
+originZip,
+tier,
+onClose,
+onItineraryChanged,
+onAfterSave,
+}) {
 const [loading, setLoading] = useState(false);
 const [error, setError] = useState("");
 const [activities, setActivities] = useState([]);
@@ -592,17 +911,11 @@ const [coupons, setCoupons] = useState([]);
 const [checked, setChecked] = useState({});
 const [toast, setToast] = useState("");
 
-// Custom ideas at TOP (user enters + can checkbox/select)
 const [customIdeas, setCustomIdeas] = useState([]);
 const [customTitle, setCustomTitle] = useState("");
 const [customLink, setCustomLink] = useState("");
 
 const destinationName = destination?.name || "";
-
-const drivingUrl = useMemo(() => buildDrivingDirectionsUrl(originZip, destinationName), [originZip, destinationName]);
-const mapUrl = useMemo(() => buildMapsSearchUrl(destinationName), [destinationName]);
-const flightsUrl = useMemo(() => buildFlightsUrl(destinationName), [destinationName]);
-const hotelsUrl = useMemo(() => buildHotelsUrl(destinationName), [destinationName]);
 
 async function loadIdeas() {
 setLoading(true);
@@ -613,18 +926,7 @@ try {
 const res = await fetch("/api/places", {
 method: "POST",
 headers: { "Content-Type": "application/json" },
-body: JSON.stringify({
-destinationName,
-destination: {
-name: destinationName,
-lat: destination?.lat ?? null,
-lon: destination?.lon ?? null,
-country: destination?.country ?? null,
-},
-lat: destination?.lat ?? null,
-lon: destination?.lon ?? null,
-country: destination?.country ?? null,
-}),
+body: JSON.stringify({ destinationName }),
 });
 
 if (!res.ok) {
@@ -655,8 +957,8 @@ loadIdeas();
 // eslint-disable-next-line react-hooks/exhaustive-deps
 }, [destinationName]);
 
-function toggle(itemKey) {
-setChecked((prev) => ({ ...prev, [itemKey]: !prev[itemKey] }));
+function toggle(key) {
+setChecked((prev) => ({ ...prev, [key]: !prev[key] }));
 }
 
 function normalizeUrlMaybe(url) {
@@ -683,8 +985,7 @@ url: url || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponen
 source: "Custom idea",
 };
 
-// Add to local list at top + auto-check it
-setCustomIdeas((prev) => [item, ...prev].slice(0, 10));
+setCustomIdeas((prev) => [item, ...prev].slice(0, 12));
 const k = `u:${item.url || item.title}`;
 setChecked((prev) => ({ ...prev, [k]: true }));
 
@@ -693,14 +994,7 @@ setCustomLink("");
 setToast("Added. Check it and click 'Add Selected to Itinerary'.");
 }
 
-function addSelectedToItinerary() {
-setToast("");
-
-if (!tierAllowsItinerary(tier)) {
-setToast("Upgrade to Plus to save itineraries.");
-return;
-}
-
+function collectSelectedItems() {
 const selected = [];
 
 for (const a of activities) {
@@ -715,38 +1009,55 @@ for (const c of coupons) {
 const k = `c:${c.url || c.title}`;
 if (checked[k]) selected.push({ type: "coupon", ...c });
 }
-
-// custom ideas list (at top)
 for (const u of customIdeas) {
 const k = `u:${u.url || u.title}`;
 if (checked[k]) selected.push({ type: "coupon", ...u });
 }
 
+return selected;
+}
+
+function addSelectedToItinerary() {
+setToast("");
+
+if (!tierAllowsItinerary(tier)) {
+setToast("Upgrade to Plus to save itineraries.");
+return;
+}
+
+const selected = collectSelectedItems();
 if (selected.length === 0) {
 setToast("Select at least 1 item first.");
 return;
 }
 
 const existing = loadItineraryFromStorage();
-
-const keyOf = (it) =>
-`${it.type}:${it.placeId || it.place_id || it.url || it.title || it.name || ""}`;
-
+const keyOf = (it) => `${it.type}:${it.placeId || it.place_id || it.url || it.title || it.name || ""}`;
 const seen = new Set(existing.map(keyOf));
 const merged = [...existing];
 
 for (const it of selected) {
-const k = keyOf(it);
+const withMeta = { ...it, destinationName: destinationName || it?.destinationName || "" };
+const k = keyOf(withMeta);
 if (!seen.has(k)) {
 seen.add(k);
-merged.push(it);
+merged.push(withMeta);
 }
+}
+
+const meta = loadItineraryMeta();
+if (!meta?.destinationName) {
+saveItineraryMeta({
+destinationName,
+createdAt: new Date().toISOString(),
+name: "",
+});
 }
 
 saveItineraryToStorage(merged);
 if (typeof onItineraryChanged === "function") onItineraryChanged(merged);
-
-setToast(`Saved ${selected.length} item(s) to your itinerary.`);
+if (typeof onAfterSave === "function") onAfterSave();
+if (typeof onClose === "function") onClose();
 }
 
 return (
@@ -764,7 +1075,7 @@ zIndex: 9999,
 >
 <div
 style={{
-width: "min(920px, 96vw)",
+width: "min(980px, 96vw)",
 maxHeight: "85vh",
 overflow: "auto",
 background: "white",
@@ -795,32 +1106,42 @@ fontWeight: 900,
 Plan Your Trip: {destinationName || "Destination"}
 </div>
 
-<div style={{ marginBottom: 10, color: "#6b7280", fontWeight: 800 }}>
-Links open in a new tab.
-</div>
-
-<div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 10 }}>
-<a href={drivingUrl} target="_blank" rel="noreferrer" style={{ fontWeight: 900 }}>
-Driving directions (from ZIP)
+<div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+<a href={buildMapsSearchUrl(destinationName)} target="_blank" rel="noreferrer" style={cardActionButtonStyle(false)}>
+Map
 </a>
-<a href={mapUrl} target="_blank" rel="noreferrer" style={{ fontWeight: 900 }}>
-Open destination map
-</a>
-<a href={flightsUrl} target="_blank" rel="noreferrer" style={{ fontWeight: 900 }}>
+<a href={buildExpediaAffiliateUrl("flights", destinationName)} target="_blank" rel="noreferrer" style={cardActionButtonStyle(false)}>
 Flights
 </a>
-<a href={hotelsUrl} target="_blank" rel="noreferrer" style={{ fontWeight: 900 }}>
+<a href={buildExpediaAffiliateUrl("hotels", destinationName)} target="_blank" rel="noreferrer" style={cardActionButtonStyle(false)}>
 Hotels
+</a>
+<a href={buildExpediaAffiliateUrl("cars", destinationName)} target="_blank" rel="noreferrer" style={cardActionButtonStyle(false)}>
+Rental Cars
+</a>
+<a href={buildViatorDestinationUrl(destinationName)} target="_blank" rel="noreferrer" style={cardActionButtonStyle(false)}>
+Viator
+</a>
+<a href={buildGetYourGuideDestinationUrl(destinationName)} target="_blank" rel="noreferrer" style={cardActionButtonStyle(false)}>
+GetYourGuide
 </a>
 </div>
 
 {error ? <div style={{ color: "crimson", fontWeight: 900, marginBottom: 10 }}>{error}</div> : null}
+{toast ? <div style={{ color: "#111827", fontWeight: 900, marginBottom: 10 }}>{toast}</div> : null}
 
-{/* ✅ Custom idea box AT TOP */}
-<div style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, background: "#fafafa" }}>
+<div
+style={{
+border: "1px solid #e5e7eb",
+borderRadius: 12,
+padding: 12,
+background: "#fafafa",
+marginBottom: 14,
+}}
+>
 <div style={{ fontSize: 18, fontWeight: 900 }}>➕ Add your own idea</div>
 <div style={{ color: "#6b7280", fontWeight: 800, marginTop: 4 }}>
-Not seeing what you want? Add an activity/restaurant idea (optional link). Then check it and save.
+Add an activity or restaurant idea with an optional link.
 </div>
 
 <div
@@ -864,7 +1185,6 @@ cursor: "pointer",
 fontWeight: 900,
 height: 42,
 }}
-title="Adds your idea to the list (check it to save)"
 >
 Add
 </button>
@@ -878,20 +1198,9 @@ const key = `u:${u.url || u.title}`;
 return (
 <label
 key={`${key}-${idx}`}
-style={{
-display: "grid",
-gridTemplateColumns: "22px 1fr",
-gap: 10,
-padding: "6px 0",
-alignItems: "start",
-}}
+style={{ display: "grid", gridTemplateColumns: "22px 1fr", gap: 10, padding: "6px 0" }}
 >
-<input
-type="checkbox"
-checked={!!checked[key]}
-onChange={() => toggle(key)}
-style={{ marginTop: 4 }}
-/>
+<input type="checkbox" checked={!!checked[key]} onChange={() => toggle(key)} style={{ marginTop: 4 }} />
 <div>
 <a href={u.url} target="_blank" rel="noreferrer" style={{ fontWeight: 900 }}>
 {u.title}
@@ -905,42 +1214,23 @@ style={{ marginTop: 4 }}
 ) : null}
 </div>
 
-{toast ? (
-<div style={{ marginTop: 10, color: "#111827", fontWeight: 900, background: "#eef2ff", padding: 10, borderRadius: 10 }}>
-{toast}
-</div>
-) : null}
-
-{/* Activities */}
 <div style={{ marginTop: 14 }}>
 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
 <div style={{ fontSize: 18, fontWeight: 900 }}>⭐ Activities</div>
 {loading ? <div style={{ color: "#6b7280" }}>Loading…</div> : null}
 </div>
 
-{activities.length === 0 && !loading ? <div style={{ color: "#374151", marginTop: 6 }}>No activities returned.</div> : null}
+{activities.length === 0 && !loading ? (
+<div style={{ color: "#374151", marginTop: 6 }}>No activities returned.</div>
+) : null}
 
 {activities.map((a) => {
 const placeId = a.placeId || a.place_id || "";
 const key = `a:${placeId || a.name}`;
-const url =
-a.mapsUrl ||
-a.url ||
-(placeId
-? `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(placeId)}`
-: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(a.name || "")}`);
+const url = buildPlaceLink(a);
 
 return (
-<label
-key={key}
-style={{
-display: "grid",
-gridTemplateColumns: "22px 1fr",
-gap: 10,
-padding: "6px 0",
-alignItems: "start",
-}}
->
+<label key={key} style={{ display: "grid", gridTemplateColumns: "22px 1fr", gap: 10, padding: "6px 0" }}>
 <input type="checkbox" checked={!!checked[key]} onChange={() => toggle(key)} style={{ marginTop: 4 }} />
 <div>
 <a href={url} target="_blank" rel="noreferrer" style={{ fontWeight: 900 }}>
@@ -954,33 +1244,20 @@ alignItems: "start",
 })}
 </div>
 
-{/* Restaurants */}
 <div style={{ marginTop: 18 }}>
 <div style={{ fontSize: 18, fontWeight: 900 }}>🍽️ Restaurants</div>
 
-{restaurants.length === 0 && !loading ? <div style={{ color: "#374151", marginTop: 6 }}>No restaurants returned.</div> : null}
+{restaurants.length === 0 && !loading ? (
+<div style={{ color: "#374151", marginTop: 6 }}>No restaurants returned.</div>
+) : null}
 
 {restaurants.map((r) => {
 const placeId = r.placeId || r.place_id || "";
 const key = `r:${placeId || r.name}`;
-const url =
-r.mapsUrl ||
-r.url ||
-(placeId
-? `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(placeId)}`
-: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(r.name || "")}`);
+const url = buildPlaceLink(r);
 
 return (
-<label
-key={key}
-style={{
-display: "grid",
-gridTemplateColumns: "22px 1fr",
-gap: 10,
-padding: "6px 0",
-alignItems: "start",
-}}
->
+<label key={key} style={{ display: "grid", gridTemplateColumns: "22px 1fr", gap: 10, padding: "6px 0" }}>
 <input type="checkbox" checked={!!checked[key]} onChange={() => toggle(key)} style={{ marginTop: 4 }} />
 <div>
 <a href={url} target="_blank" rel="noreferrer" style={{ fontWeight: 900 }}>
@@ -994,30 +1271,22 @@ alignItems: "start",
 })}
 </div>
 
-{/* Coupons */}
 <div style={{ marginTop: 18 }}>
-<div style={{ fontSize: 18, fontWeight: 900 }}>🏷️ Coupons & Deals</div>
+<div style={{ fontSize: 18, fontWeight: 900 }}>🏷️ Deals</div>
 
 {coupons.length === 0 && !loading ? (
-<div style={{ color: "#374151", marginTop: 6 }}>No deals returned yet. (We’ll wire this up later.)</div>
+<div style={{ color: "#374151", marginTop: 6 }}>No deals returned yet.</div>
 ) : null}
 
 {coupons.map((c, idx) => {
 const key = `c:${c.url || c.title || idx}`;
+const link = c.url || buildMapsSearchUrl(c.title || destinationName);
+
 return (
-<label
-key={key}
-style={{
-display: "grid",
-gridTemplateColumns: "22px 1fr",
-gap: 10,
-padding: "6px 0",
-alignItems: "start",
-}}
->
+<label key={key} style={{ display: "grid", gridTemplateColumns: "22px 1fr", gap: 10, padding: "6px 0" }}>
 <input type="checkbox" checked={!!checked[key]} onChange={() => toggle(key)} style={{ marginTop: 4 }} />
 <div>
-<a href={c.url} target="_blank" rel="noreferrer" style={{ fontWeight: 900 }}>
+<a href={link} target="_blank" rel="noreferrer" style={{ fontWeight: 900 }}>
 {c.title || "Deal"}
 </a>
 {c.source ? <div style={{ color: "#6b7280", fontWeight: 800 }}>Source: {c.source}</div> : null}
@@ -1027,19 +1296,18 @@ alignItems: "start",
 })}
 </div>
 
-{/* Footer buttons */}
-<div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 18, flexWrap: "wrap" }}>
-<button
-onClick={onClose}
-style={{
-border: "1px solid #d1d5db",
-background: "white",
-borderRadius: 10,
-padding: "10px 14px",
-cursor: "pointer",
-fontWeight: 900,
-}}
->
+<div style={{ display: "flex", gap: 10, justifyContent: "space-between", marginTop: 18, flexWrap: "wrap" }}>
+<div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+<a href={buildViatorDestinationUrl(destinationName)} target="_blank" rel="noreferrer" style={cardActionButtonStyle(false)}>
+Tours on Viator
+</a>
+<a href={buildGetYourGuideDestinationUrl(destinationName)} target="_blank" rel="noreferrer" style={cardActionButtonStyle(false)}>
+Tours on GetYourGuide
+</a>
+</div>
+
+<div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+<button onClick={onClose} style={cardActionButtonStyle(false)}>
 Close
 </button>
 
@@ -1076,8 +1344,10 @@ Reload ideas
 </div>
 </div>
 </div>
+</div>
 );
 }
+
 function EmailPreviewModal({ open, onClose, subject, body }) {
 if (!open) return null;
 
@@ -1109,17 +1379,7 @@ onClick={(e) => e.stopPropagation()}
 >
 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
 <div style={{ fontSize: 20, fontWeight: 900 }}>Email preview</div>
-<button
-onClick={onClose}
-style={{
-border: "1px solid #d1d5db",
-background: "white",
-borderRadius: 10,
-padding: "6px 10px",
-cursor: "pointer",
-fontWeight: 900,
-}}
->
+<button onClick={onClose} style={cardActionButtonStyle(false)}>
 ✕
 </button>
 </div>
@@ -1159,18 +1419,7 @@ fontSize: 13,
 </div>
 
 <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 12, flexWrap: "wrap" }}>
-<a
-href={mailtoHref}
-style={{
-display: "inline-block",
-background: "#111827",
-color: "white",
-borderRadius: 10,
-padding: "10px 14px",
-fontWeight: 900,
-textDecoration: "none",
-}}
->
+<a href={mailtoHref} style={cardActionButtonStyle(true)}>
 Open in Email App
 </a>
 
@@ -1183,14 +1432,7 @@ alert("Copied email preview to clipboard.");
 alert("Could not copy. You can manually select + copy the text.");
 }
 }}
-style={{
-border: "1px solid #d1d5db",
-background: "white",
-borderRadius: 10,
-padding: "10px 14px",
-cursor: "pointer",
-fontWeight: 900,
-}}
+style={cardActionButtonStyle(false)}
 >
 Copy Email Text
 </button>
@@ -1202,48 +1444,66 @@ Copy Email Text
 
 export default function ResultsPage() {
 const router = useRouter();
+const searchParams = useSearchParams();
 
 const [recommendations, setRecommendations] = useState([]);
 const [originZip, setOriginZip] = useState("");
-const [suggestions, setSuggestions] = useState([]);
-
 const [activeDestination, setActiveDestination] = useState(null);
 
-// pricing selection -> tier
 const [tier, setTier] = useState("free");
-
-// itinerary state (to render panel live)
 const [itineraryItems, setItineraryItems] = useState([]);
+const [itineraryMeta, setItineraryMeta] = useState({
+destinationName: "",
+createdAt: null,
+name: "",
+});
+const [itineraryPulse, setItineraryPulse] = useState(false);
 
-// pro dates
 const [tripDates, setTripDates] = useState({ startDate: "", endDate: "" });
 
-// email preview modal
 const [emailModalOpen, setEmailModalOpen] = useState(false);
 const [emailPreview, setEmailPreview] = useState({ subject: "", body: "" });
 
-// Your Google Form responder link
+const [resultsPage, setResultsPage] = useState(0);
+
 const feedbackFormUrl =
 "https://docs.google.com/forms/d/e/1FAIpQLSe2x3uZGyIgFS2S_p9Zgr2cqZgzuz18XVbEisolcKcCgxZMZQ/viewform?usp=header";
+
+const quizAnswers = useMemo(() => {
+if (typeof window === "undefined") return {};
+const candidates = ["answers", "quizAnswers", "tripsolver_answers", "quizState"];
+for (const k of candidates) {
+const v = safeJsonParse(sessionStorage.getItem(k), null);
+if (v && typeof v === "object") return v;
+}
+return {};
+}, []);
 
 useEffect(() => {
 const recs = safeJsonParse(sessionStorage.getItem("recommendations"), []);
 const oz = safeJsonParse(sessionStorage.getItem("originZip"), "");
-const sug = safeJsonParse(sessionStorage.getItem("suggestions"), []);
 
 setRecommendations(Array.isArray(recs) ? recs : []);
 setOriginZip(typeof oz === "string" ? oz : "");
-setSuggestions(Array.isArray(sug) ? sug : []);
 
-// tier from pricingSelection (stored from pricing page)
 const ps =
 safeJsonParse(sessionStorage.getItem("pricingSelection"), null) ||
 safeJsonParse(localStorage.getItem("pricingSelection"), null);
 
 setTier(normalizeTier(ps?.tier));
 
-// itinerary from localStorage
 setItineraryItems(loadItineraryFromStorage());
+const meta = loadItineraryMeta();
+setItineraryMeta(meta);
+
+if (!meta?.createdAt) {
+saveItineraryMeta({
+destinationName: meta?.destinationName || "",
+createdAt: new Date().toISOString(),
+name: "",
+});
+setItineraryMeta(loadItineraryMeta());
+}
 }, []);
 
 const hasRecs = recommendations && recommendations.length > 0;
@@ -1251,6 +1511,25 @@ const hasRecs = recommendations && recommendations.length > 0;
 const destinationNameForPro = useMemo(() => {
 const first = recommendations?.[0]?.name || "";
 return first;
+}, [recommendations]);
+
+const vacationTypes = useMemo(() => {
+const raw = searchParams?.get("vacationType") || "any";
+const parts = String(raw)
+.split(",")
+.map((s) => s.trim())
+.filter(Boolean);
+const cleaned = parts.length ? parts : ["any"];
+return cleaned.slice(0, 2);
+}, [searchParams]);
+
+useEffect(() => {
+setResultsPage(0);
+}, [vacationTypes.join("|")]);
+
+const nonCruiseRecommendations = useMemo(() => {
+const list = Array.isArray(recommendations) ? recommendations : [];
+return list.filter((d) => !d?.isCruise && !normalizeVacationChoice(d?.name).includes("cruise"));
 }, [recommendations]);
 
 function removeOneItem(it) {
@@ -1283,17 +1562,159 @@ function openEmailPreview() {
 const preview = buildEmailPreview({
 tier,
 tripDates,
-destinationName: destinationNameForPro,
+destinationName: itineraryMeta?.destinationName || destinationNameForPro,
 items: itineraryItems,
 });
 setEmailPreview(preview);
 setEmailModalOpen(true);
 }
 
+function scrollToItineraryAndPulse() {
+setTimeout(() => {
+const el = document.getElementById("itinerary-panel");
+if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+
+setItineraryPulse(true);
+setTimeout(() => setItineraryPulse(false), 1600);
+}, 50);
+}
+
+function handleStartNewItinerary({ destinationName = "", archive = true } = {}) {
+startNewItinerary({ destinationName, archive });
+setItineraryItems(loadItineraryFromStorage());
+setItineraryMeta(loadItineraryMeta());
+scrollToItineraryAndPulse();
+}
+
+function startNewItineraryFromPanel() {
+const ok = window.confirm("Save your current itinerary and start a new one?");
+if (!ok) return;
+handleStartNewItinerary({ destinationName: "", archive: true });
+}
+
+function normalizeWeatherAnswer(weather) {
+if (!weather) return "any";
+const w = String(weather).toLowerCase();
+if (w.includes("warm")) return "warm";
+if (w.includes("cool")) return "cool";
+if (w.includes("cold") || w.includes("snow")) return "cold";
+return "any";
+}
+
+const cruise = useMemo(() => {
+const types = vacationTypes || ["any"];
+const weather = normalizeWeatherAnswer(quizAnswers?.weather);
+const scope = quizAnswers?.scope || quizAnswers?.travelScope || "us+intl";
+
+let title = "Cruise Option";
+let subtitle = "A low-stress way to travel with built-in lodging and food.";
+let imageKeyword = "cruise ship ocean deck";
+let link = buildExpediaAffiliateUrl("cruise", "cruise");
+let bullets = ["Great value for groups", "Easy planning", "Unpack once, see multiple places"];
+
+const has = (t) => types.includes(t);
+
+if (has("beach") && (weather === "warm" || weather === "any")) {
+title = "Caribbean Cruise";
+subtitle = "Warm weather + beach days with minimal planning.";
+imageKeyword = "caribbean cruise ship deck";
+link = buildExpediaAffiliateUrl("cruise", "caribbean cruise");
+bullets = ["Warm beaches", "Relaxing sea days", "Great for couples or families"];
+} else if (has("outdoors") || has("adventure") || weather === "cold" || weather === "cool") {
+title = "Alaska Cruise";
+subtitle = "Glaciers, wildlife, and big scenery — outdoors made easy.";
+imageKeyword = "alaska cruise ship glacier";
+link = buildExpediaAffiliateUrl("cruise", "alaska cruise");
+bullets = ["Glaciers + wildlife", "Easy access to excursions", "Cool-weather favorite"];
+} else if (has("culture") || has("history") || scope === "intl-only") {
+title = "Mediterranean Cruise";
+subtitle = "History + iconic cities in one trip.";
+imageKeyword = "mediterranean cruise ship";
+link = buildExpediaAffiliateUrl("cruise", "mediterranean cruise");
+bullets = ["Culture + history", "Multiple countries", "Great for international travel"];
+} else if (has("theme") || has("family")) {
+title = "Family-Friendly Cruise";
+subtitle = "Kid-friendly activities, pools, and simple logistics.";
+imageKeyword = "family cruise ship deck";
+link = buildExpediaAffiliateUrl("cruise", "family cruise");
+bullets = ["Family-friendly fun", "Food included", "Easy logistics"];
+} else if (has("themed")) {
+title = "Northern Europe Cruise";
+subtitle = "Storybook ports, charming towns, and seasonal vibes.";
+imageKeyword = "northern europe cruise ship";
+link = buildExpediaAffiliateUrl("cruise", "northern europe cruise");
+bullets = ["Charming ports", "Great scenery", "Perfect for discovery"];
+}
+
+return { title, subtitle, bullets, link, imageKeyword, isCruise: true };
+}, [vacationTypes, quizAnswers]);
+
+const sortedDestinationPool = useMemo(() => {
+const list = Array.isArray(nonCruiseRecommendations) ? nonCruiseRecommendations : [];
+if (!list.length) return [];
+
+const selected = vacationTypes.filter((t) => t && t !== "any");
+if (!selected.length) return list;
+
+const exactMatches = [];
+const fallbackMatches = [];
+
+list.forEach((d, idx) => {
+const matchStrengths = selected.map((t) => getTypeWeight(d, t));
+const bestWeight = Math.max(...matchStrengths, 0);
+const matchCount = matchStrengths.filter((x) => x > 0.45).length;
+const score = typeof d?.score === "number" ? d.score : 0;
+
+const item = {
+destination: d,
+idx,
+bestWeight,
+matchCount,
+score,
+};
+
+if (matchCount > 0) exactMatches.push(item);
+else fallbackMatches.push(item);
+});
+
+exactMatches.sort((a, b) => {
+if (b.matchCount !== a.matchCount) return b.matchCount - a.matchCount;
+if (b.bestWeight !== a.bestWeight) return b.bestWeight - a.bestWeight;
+if (b.score !== a.score) return b.score - a.score;
+return a.idx - b.idx;
+});
+
+fallbackMatches.sort((a, b) => {
+if (b.score !== a.score) return b.score - a.score;
+return a.idx - b.idx;
+});
+
+return [...exactMatches, ...fallbackMatches].map((x) => x.destination);
+}, [nonCruiseRecommendations, vacationTypes]);
+
+const RESULTS_PER_PAGE = 5;
+const totalPages = Math.max(1, Math.ceil(sortedDestinationPool.length / RESULTS_PER_PAGE));
+
+useEffect(() => {
+if (resultsPage > totalPages - 1) {
+setResultsPage(Math.max(0, totalPages - 1));
+}
+}, [resultsPage, totalPages]);
+
+const visibleDestinationCards = useMemo(() => {
+const start = resultsPage * RESULTS_PER_PAGE;
+return sortedDestinationPool.slice(start, start + RESULTS_PER_PAGE);
+}, [sortedDestinationPool, resultsPage]);
+
+const pageStart = sortedDestinationPool.length ? resultsPage * RESULTS_PER_PAGE + 1 : 0;
+const pageEnd = Math.min((resultsPage + 1) * RESULTS_PER_PAGE, sortedDestinationPool.length);
+
 return (
 <div style={{ padding: 40 }}>
 <div style={{ textAlign: "center", marginBottom: 18 }}>
-<h1 style={{ fontSize: 34, fontWeight: 900, margin: 0 }}>Your Personalized Vacation Results ✨</h1>
+<h1 style={{ fontSize: 34, fontWeight: 900, margin: 0 }}>
+Your Personalized Vacation Results ✨
+</h1>
 
 <div style={{ display: "flex", justifyContent: "center", gap: 10, flexWrap: "wrap", marginTop: 12 }}>
 <div
@@ -1355,7 +1776,7 @@ Back to Home
 </div>
 </div>
 
-{/* Itinerary panel */}
+<div id="itinerary-panel">
 <ItineraryPanel
 tier={tier}
 items={itineraryItems}
@@ -1366,7 +1787,11 @@ onEmail={openEmailPreview}
 tripDates={tripDates}
 onTripDatesChange={setTripDates}
 destinationNameForPro={destinationNameForPro}
+pulse={itineraryPulse}
+itineraryMeta={itineraryMeta}
+onStartNewItineraryClick={startNewItineraryFromPanel}
 />
+</div>
 
 {!hasRecs ? (
 <div
@@ -1379,8 +1804,12 @@ borderRadius: 12,
 padding: 16,
 }}
 >
-<div style={{ fontWeight: 900, marginBottom: 8 }}>No recommendations found in sessionStorage.</div>
-<div style={{ color: "#374151", marginBottom: 14 }}>Go back to the quiz and generate results again.</div>
+<div style={{ fontWeight: 900, marginBottom: 8 }}>
+No recommendations found in sessionStorage.
+</div>
+<div style={{ color: "#374151", marginBottom: 14 }}>
+Go back to the quiz and generate results again.
+</div>
 <button
 onClick={() => router.push("/quiz")}
 style={{
@@ -1398,26 +1827,9 @@ Back to Quiz
 </div>
 ) : (
 <>
-{suggestions?.length ? (
-<div
-style={{
-maxWidth: 980,
-margin: "0 auto 16px auto",
-border: "1px solid #e5e7eb",
-background: "#fff7ed",
-borderRadius: 12,
-padding: 12,
-}}
->
-<div style={{ fontWeight: 900, marginBottom: 6 }}>Not seeing a perfect match?</div>
-{suggestions.slice(0, 3).map((s, idx) => (
-<div key={idx} style={{ color: "#374151" }}>
-{s?.message || ""}
+<div style={{ maxWidth: 1100, margin: "0 auto 14px auto" }}>
+<VacationTypePicker />
 </div>
-))}
-<div style={{ color: "#6b7280", marginTop: 8, fontSize: 13 }}>(Next step: we’ll wire re-run matching.)</div>
-</div>
-) : null}
 
 <div
 style={{
@@ -1428,15 +1840,64 @@ maxWidth: 1100,
 margin: "0 auto",
 }}
 >
-{recommendations.map((d, idx) => (
+<CruiseCard
+cruise={cruise}
+onClick={() => {
+if (cruise?.link) window.open(cruise.link, "_blank", "noreferrer");
+}}
+/>
+
+{visibleDestinationCards.map((d, idx) => (
 <DestinationCard
-key={`${d?.name || "dest"}-${idx}`}
+key={`${d?.name || "dest"}-${resultsPage}-${idx}`}
 destination={d}
 originZip={originZip}
 onPlanTrip={(dest) => setActiveDestination(dest)}
 />
 ))}
 </div>
+
+{sortedDestinationPool.length > RESULTS_PER_PAGE ? (
+<div
+style={{
+maxWidth: 1100,
+margin: "16px auto 0 auto",
+display: "flex",
+alignItems: "center",
+justifyContent: "space-between",
+gap: 12,
+flexWrap: "wrap",
+}}
+>
+<button
+onClick={() => setResultsPage((p) => Math.max(0, p - 1))}
+disabled={resultsPage === 0}
+style={{
+...cardActionButtonStyle(false),
+opacity: resultsPage === 0 ? 0.5 : 1,
+cursor: resultsPage === 0 ? "not-allowed" : "pointer",
+}}
+>
+◀ Previous
+</button>
+
+<div style={{ fontWeight: 900, color: "#374151" }}>
+Showing {pageStart}-{pageEnd} of {sortedDestinationPool.length} destinations • Page {resultsPage + 1} of {totalPages}
+</div>
+
+<button
+onClick={() => setResultsPage((p) => Math.min(totalPages - 1, p + 1))}
+disabled={resultsPage >= totalPages - 1}
+style={{
+...cardActionButtonStyle(false),
+opacity: resultsPage >= totalPages - 1 ? 0.5 : 1,
+cursor: resultsPage >= totalPages - 1 ? "not-allowed" : "pointer",
+}}
+>
+Next ▶
+</button>
+</div>
+) : null}
 </>
 )}
 
@@ -1446,11 +1907,20 @@ destination={activeDestination}
 originZip={originZip}
 tier={tier}
 onClose={() => setActiveDestination(null)}
-onItineraryChanged={(merged) => setItineraryItems(Array.isArray(merged) ? merged : loadItineraryFromStorage())}
+onItineraryChanged={(merged) => {
+setItineraryItems(Array.isArray(merged) ? merged : loadItineraryFromStorage());
+setItineraryMeta(loadItineraryMeta());
+}}
+onAfterSave={scrollToItineraryAndPulse}
 />
 ) : null}
 
-<EmailPreviewModal open={emailModalOpen} onClose={() => setEmailModalOpen(false)} subject={emailPreview.subject} body={emailPreview.body} />
+<EmailPreviewModal
+open={emailModalOpen}
+onClose={() => setEmailModalOpen(false)}
+subject={emailPreview.subject}
+body={emailPreview.body}
+/>
 </div>
 );
 }

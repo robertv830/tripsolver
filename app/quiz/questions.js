@@ -1,11 +1,11 @@
 // app/quiz/questions.js
 
 const questions = [
-// 1️⃣ ZIP CODE
+// 1️⃣ ORIGIN (CITY OR ZIP)
 {
-id: "zipCode",
-type: "zip",
-question: "What is your home ZIP code?",
+id: "origin",
+type: "origin",
+question: "Where are you starting from? (City or ZIP)",
 },
 
 // 2️⃣ TRAVELER INFO
@@ -15,121 +15,97 @@ type: "traveler-info",
 question: "Tell us about the people traveling with you.",
 },
 
-// 3️⃣ BUDGET SLIDER
+// 3️⃣ BUDGET
+// Keep for future package suggestions / pricing insights,
+// but do not use it as a main destination-matching factor.
 {
 id: "budget",
 type: "budget-slider",
 question: "What is your approximate budget for this trip?",
 },
 
-// 4️⃣ DISTANCE SLIDER + INTERNATIONAL OPTION
+// 4️⃣ DISTANCE + INTERNATIONAL OPTION
 {
 id: "distance",
 type: "distance-slider",
 question: "How far are you willing to travel?",
 },
 
-// ⭐ Preferences follow
+// 5️⃣ MAIN DESTINATION TYPE
+// This should be one of the two biggest destination inputs,
+// along with distance.
 {
 id: "vacationType",
 question: "What type of vacation are you interested in?",
-options: ["Relaxing", "Adventure", "Theme Park", "Outdoors", "Beach", "Culture & History"],
+options: [
+"Theme Parks",
+"Beach",
+"Culture & History",
+"Themed Cities & Towns",
+"Outdoor Adventure",
+"Family-Friendly",
+],
 },
 
+// 6️⃣ SEASON PREFERENCE
+// Replaces weather. Better for card messaging and seasonal suggestions.
 {
-id: "pace",
-question: "What pace of vacation do you prefer?",
-options: ["Slow & Relaxed", "A Mix of Both", "Fast-Paced & Exciting"],
+id: "seasonPreference",
+question: "What season do you most like to travel?",
+options: ["Winter", "Spring", "Summer", "Fall"],
 },
 
-{
-id: "weather",
-question: "What kind of weather do you enjoy on vacation?",
-options: ["Warm & Sunny", "Cool & Mild", "Cold & Snowy", "No Preference"],
-},
-
-{
-id: "activityLevel",
-question: "What level of physical activity do you prefer?",
-options: ["Low Activity", "Moderate Activity", "High Activity"],
-},
-
-{
-id: "cityOrNature",
-question: "Do you enjoy visiting cities or nature more?",
-options: ["Big Cities", "Small Towns", "Nature Destinations", "A Mix"],
-},
-
-{
-id: "foodImportance",
-question: "Do you enjoy food as a major part of your vacation?",
-options: ["Absolutely", "Somewhat", "Not really"],
-},
-
-{
-id: "lodging",
-question: "What type of lodging do you prefer?",
-options: ["Hotel", "Resort", "Airbnb/Apartment", "All-Inclusive", "No Preference"],
-},
-
+// 7️⃣ POPULAR VS HIDDEN GEMS
+// Keep as a light preference only.
 {
 id: "popularOrHidden",
 question: "Do you prefer popular destinations or hidden gems?",
 options: ["Popular Destinations", "Hidden Gems", "Either is fine"],
 },
 
-{
-id: "nightlife",
-question: "How important is nightlife during your trip?",
-options: ["Very Important", "Somewhat Important", "Not Important"],
-},
-
+// 8️⃣ LEARNING / CULTURE PREFERENCE
+// Use later for activities inside the destination.
 {
 id: "cultureLearning",
 question: "Do you enjoy trips that are educational or cultural?",
 options: ["Yes, I love learning", "A little bit", "Not really"],
 },
 
-{
-id: "scenery",
-question: "What kind of scenery do you enjoy most?",
-options: ["Mountains", "Beaches", "City Skylines", "Forests", "No Preference"],
-},
-
-{
-id: "spontaneity",
-question: "How spontaneous do you like your vacations to be?",
-options: ["Very Structured & Planned", "A Mix of Both", "Very Spontaneous"],
-},
-
+// 9️⃣ FOOD PREFERENCE
+// Use later to influence restaurants shown in the modal/card.
 {
 id: "foodExperience",
 question: "What type of food experience do you prefer?",
 options: ["Fine Dining", "Street Food", "Local Cuisine", "No Preference"],
 },
 
+// 10️⃣ INDOOR VS OUTDOOR ACTIVITIES
+// Use later for activity suggestions.
 {
 id: "indoorOutdoor",
 question: "Do you prefer indoor or outdoor activities?",
 options: ["Mostly Indoor", "Mostly Outdoor", "A Mix"],
 },
 
+// 11️⃣ ACTIVITY LEVEL
+// Replaces the old walking question.
 {
-id: "walking",
-question: "Do you like trips with a lot of walking?",
-options: ["Yes", "Some", "Prefer minimal walking"],
+id: "activityLevel",
+question: "How active do you like your trips to be?",
+options: ["Relaxed", "Moderately Active", "Very Active"],
 },
 
+// 12️⃣ TRIP LENGTH
+// Useful later for itinerary generation and package suggestions.
 {
 id: "tripLength",
 question: "What is your ideal trip length?",
-options: ["Weekend Getaway (1–3 days)", "Short Trip (4–6 days)", "One Week", "More than a week"],
-},
-
-{
-id: "relaxVsAdventure",
-question: "Would you like your trip to be more relaxing or more adventurous?",
-options: ["Relaxing", "Balanced", "Adventurous"],
+options: [
+"Weekend Getaway (1–3 days)",
+"Short Trip (4–6 days)",
+"One Week",
+"More than a week",
+],
 },
 ];
 

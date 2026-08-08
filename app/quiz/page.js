@@ -10,9 +10,7 @@ const router = useRouter();
 
 const [currentIndex, setCurrentIndex] = useState(0);
 const [answers, setAnswers] = useState({});
-const [pricingExpectation, setPricingExpectation] = useState("");
 const [quizComplete, setQuizComplete] = useState(false);
-
 
 // Traveler count & ages
 const [travelerCount, setTravelerCount] = useState(1);
@@ -30,14 +28,9 @@ const [submitError, setSubmitError] = useState("");
 
 const q = questions[currentIndex];
 
-// ---------- styles ----------
 const styles = useMemo(() => {
 return {
-page: {
-padding: 28,
-display: "flex",
-justifyContent: "center",
-},
+page: { padding: 28, display: "flex", justifyContent: "center" },
 card: {
 width: "100%",
 maxWidth: 760,
@@ -123,13 +116,12 @@ borderRadius: 10,
 };
 }, []);
 
-// ---------- Advance question ----------
 function nextQuestion(saveValue) {
 const cur = questions[currentIndex];
 
 setAnswers((prev) => ({
 ...prev,
-[String(cur.id)]: saveValue, // force string keys to avoid id=4 vs "4" issues
+[String(cur.id)]: saveValue,
 }));
 
 if (currentIndex < questions.length - 1) {
@@ -139,13 +131,11 @@ setQuizComplete(true);
 }
 }
 
-// ---------- Back button ----------
 function prevQuestion() {
 if (currentIndex === 0) return;
 setCurrentIndex((prev) => prev - 1);
 }
 
-// ---------- Redirect when complete ----------
 useEffect(() => {
 if (!quizComplete) return;
 
@@ -154,13 +144,18 @@ setIsSubmitting(true);
 setSubmitError("");
 
 try {
-// Helpful for debugging
-localStorage.setItem("vacationAnswers", JSON.stringify(answers));
+const payloadAnswers = {
+...answers,
+budget,
+distance: answers.distance || { miles: distance, scope: distanceScope },
+};
+
+localStorage.setItem("vacationAnswers", JSON.stringify(payloadAnswers));
 
 const res = await fetch("/api/recommendations", {
 method: "POST",
 headers: { "Content-Type": "application/json" },
-body: JSON.stringify({ answers }),
+body: JSON.stringify({ answers: payloadAnswers }),
 });
 
 if (!res.ok) {
@@ -170,14 +165,11 @@ throw new Error(txt || "Failed to fetch recommendations.");
 
 const data = await res.json();
 
-sessionStorage.setItem(
-"recommendations",
-JSON.stringify(data.recommendations || [])
-);
-
+sessionStorage.setItem("recommendations", JSON.stringify(data.recommendations || []));
 sessionStorage.setItem("originZip", JSON.stringify(data.originZip || ""));
 sessionStorage.setItem("origin", JSON.stringify(data.origin || null));
-sessionStorage.setItem("quizAnswers", JSON.stringify(answers));
+sessionStorage.setItem("quizAnswers", JSON.stringify(payloadAnswers));
+sessionStorage.setItem("suggestions", JSON.stringify(data.suggestions || []));
 
 router.push("/results");
 } catch (e) {
@@ -187,9 +179,8 @@ setIsSubmitting(false);
 }
 
 finalize();
-}, [quizComplete, answers, router]);
+}, [quizComplete, answers, budget, distance, distanceScope, router]);
 
-// ---------- Loading/submit screen ----------
 if (quizComplete) {
 return (
 <div style={styles.page}>
@@ -203,12 +194,13 @@ return (
 );
 }
 
-// ---------- Render ----------
 return (
 <div style={styles.page}>
 <div style={styles.card}>
 <div style={styles.title}>Vacation Planner Quiz 🌴</div>
-<div style={styles.subtitle}>Answer a few questions and we’ll match trips to your vibe.</div>
+<div style={styles.subtitle}>
+Answer a few questions and we’ll match trips to your vibe.
+</div>
 
 <div style={styles.topRow}>
 <button
@@ -226,31 +218,27 @@ Question {currentIndex + 1} of {questions.length}
 
 <div style={styles.question}>{q.question || q.text}</div>
 
-{/* ZIP CODE */}
-{q.type === "zip" && (
+{/* ORIGIN */}
+{q.type === "origin" && (
 <div>
 <input
 type="text"
-placeholder="Enter ZIP"
-maxLength={5}
-value={answers.zipCode || ""}
+placeholder='e.g., "Austin, TX" or "78701"'
+value={answers.origin || ""}
 onChange={(e) =>
-setAnswers((prev) => ({
-...prev,
-zipCode: e.target.value,
-}))
+setAnswers((prev) => ({ ...prev, origin: e.target.value }))
 }
 style={styles.input}
 />
 
 <button
-onClick={() => nextQuestion(answers.zipCode)}
+onClick={() => nextQuestion(String(answers.origin || "").trim())}
 style={styles.primaryBtn}
 >
 Continue
 </button>
 
-<div style={styles.hint}>Tip: 5 digits (example: 64024)</div>
+<div style={styles.hint}>Tip: You can type a city/state OR a ZIP.</div>
 </div>
 )}
 
@@ -330,7 +318,7 @@ Continue
 </div>
 )}
 
-{/* BUDGET SLIDER */}
+{/* BUDGET */}
 {q.type === "budget-slider" && (
 <div>
 <div style={styles.sliderValue}>${budget.toLocaleString()}</div>
@@ -351,7 +339,7 @@ Continue
 </div>
 )}
 
-{/* DISTANCE SLIDER + SCOPE */}
+{/* DISTANCE */}
 {q.type === "distance-slider" && (
 <div>
 <div style={styles.sliderValue}>{distance} miles</div>
@@ -403,7 +391,9 @@ onChange={() => setDistanceScope("intl-only")}
 </div>
 
 <button
-onClick={() => nextQuestion({ miles: distance, scope: distanceScope })}
+onClick={() =>
+nextQuestion({ miles: distance, scope: distanceScope })
+}
 style={styles.primaryBtn}
 >
 Continue
@@ -411,7 +401,7 @@ Continue
 </div>
 )}
 
-{/* MULTIPLE-CHOICE QUESTIONS */}
+{/* MULTIPLE CHOICE */}
 {!q.type && q.options && (
 <div style={styles.optionWrap}>
 {q.options.map((opt, index) => (
