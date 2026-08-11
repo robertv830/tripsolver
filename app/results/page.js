@@ -1,7 +1,7 @@
 // app/results/page.js
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import VacationTypePicker from "./VacationTypePicker";
 
@@ -1442,7 +1442,7 @@ Copy Email Text
 );
 }
 
-export default function ResultsPage() {
+function ResultsPageContent() {
 const router = useRouter();
 const searchParams = useSearchParams();
 
@@ -1924,3 +1924,23 @@ body={emailPreview.body}
 </div>
 );
 }
+export default function ResultsPage() {
+return (
+<Suspense
+fallback={
+<div
+style={{
+padding: 40,
+textAlign: "center",
+fontWeight: 900,
+}}
+>
+Loading your vacation results…
+</div>
+}
+>
+<ResultsPageContent />
+</Suspense>
+);
+}
+
