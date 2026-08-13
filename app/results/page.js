@@ -926,7 +926,16 @@ try {
 const res = await fetch("/api/places", {
 method: "POST",
 headers: { "Content-Type": "application/json" },
-body: JSON.stringify({ destinationName }),
+body: JSON.stringify({
+destinationName,
+destination: {
+name: destination?.name,
+lat: destination?.lat,
+lon: destination?.lon ?? destination?.lng,
+isCruise: destination?.isCruise === true,
+},
+}),
+
 });
 
 if (!res.ok) {
